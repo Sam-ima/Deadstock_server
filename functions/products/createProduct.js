@@ -6,6 +6,7 @@ exports.createProduct = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("permission-denied");
   }
 
+  // Add product to Firestore
   await db.collection("products").add({
     ...data,
     status: "active",
