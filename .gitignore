@@ -67,3 +67,4 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+deadStock_server/functions/serviceAccountKey.json
