@@ -7,7 +7,7 @@
  * @returns {number}
  */
 function daysElapsed(start, end) {
-  const msInDay = 1000 * 60 * 60 * 24;
+  const msInDay = 1000 * 60;
   return Math.floor((end - start) / msInDay);
 }
 
