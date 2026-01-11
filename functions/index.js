@@ -1,8 +1,11 @@
-exports.onUserCreate = require("./auth/onUserCreate").onUserCreate;
+require("./firebaseAdmin"); // ensure Firebase is initialized first
 
-exports.createProduct = require("./products/createProduct").createProduct;
-exports.getProducts = require("./products/getProducts").getProducts;
+const { processPriceEvolution } = require("./controllers/productPriceController");
 
-exports.placeOrder = require("./orders/placeOrder").placeOrder;
+async function run() {
+  console.log("Starting daily price evolution process...");
+  await processPriceEvolution();
+  console.log("Finished price evolution process.");
+}
 
-exports.getUsers = require("./users/getUsers").getUsers;
+run().catch(console.error);
