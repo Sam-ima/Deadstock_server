@@ -67,4 +67,4 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
-echo "functions/serviceAccountKey.json" >> .gitignore
+echo "functions/serviceAccountKey.json" >> .gitignorefunctions/serviceAccountKeys.json
