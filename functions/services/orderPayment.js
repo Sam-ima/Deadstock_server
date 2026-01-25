@@ -1,25 +1,24 @@
 const admin = require("../firebaseAdmin");
 const db = admin.firestore();
 
-// services/orderPayment.js
-async function createOrder({ userId, items, totalAmount,deliveryDetails }) {
-  const productIds = items.map(item => item.product?.id || item.id); // <-- Only product IDs
+async function createOrder({ userId, items, totalAmount, deliveryDetails, transactionUuid }) {
+  const productIds = items.map(item => item.product?.id || item.id);
 
   const orderRef = db.collection("orders").doc();
 
   await orderRef.set({
     userId,
-    items: productIds,        // store only product IDs
+    items: productIds,
     totalAmount,
-    deliveryDetails: deliveryDetails || {}, // <-- store delivery info
+    deliveryDetails: deliveryDetails || {},
     paymentMethod: "ESEWA",
     paymentStatus: "PENDING",
+    transactionUuid, // ✅ STORE THIS
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
   return {
     orderId: orderRef.id,
-    amount: totalAmount,
   };
 }
 
