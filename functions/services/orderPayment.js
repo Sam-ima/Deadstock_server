@@ -1,8 +1,14 @@
 const admin = require("../firebaseAdmin");
 const db = admin.firestore();
 
-async function createOrder({ userId, items, totalAmount, deliveryDetails, transactionUuid }) {
-  const productIds = items.map(item => item.product?.id || item.id);
+async function createOrder({
+  userId,
+  items,
+  totalAmount,
+  deliveryDetails,
+  transactionUuid,
+}) {
+  const productIds = items.map((item) => item.product?.id || item.id);
 
   const orderRef = db.collection("orders").doc();
 
@@ -21,7 +27,6 @@ async function createOrder({ userId, items, totalAmount, deliveryDetails, transa
     orderId: orderRef.id,
   };
 }
-
 
 async function markOrderPaid(orderId, refId) {
   await db.collection("orders").doc(orderId).update({

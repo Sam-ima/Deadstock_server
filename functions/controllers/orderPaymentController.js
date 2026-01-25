@@ -22,9 +22,9 @@ const config = process.env.NODE_ENV === 'production' ? ESEWA_CONFIG.live : ESEWA
  * Initiate eSewa payment
  */
 async function initiateEsewaPayment(req, res) {
-  console.log("=== INITIATE ESEWA PAYMENT CALLED ===");
-  console.log("Request body:", req.body);
-  console.log("Request headers:", req.headers);
+  // console.log("=== INITIATE ESEWA PAYMENT CALLED ===");
+  // console.log("Request body:", req.body);
+  // console.log("Request headers:", req.headers);
 
   try {
     const { userId, userEmail, items, totalAmount, deliveryDetails } = req.body;
@@ -51,15 +51,15 @@ async function initiateEsewaPayment(req, res) {
 
     // Generate unique transaction ID
     const transactionUuid = `ESEWA_${Date.now()}_${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-    console.log("Generated transaction_uuid:", transactionUuid);
+    // console.log("Generated transaction_uuid:", transactionUuid);
 
     // Create order ID
     const orderId = `ORD_${Date.now()}_${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-    console.log("Generated orderId:", orderId);
+    // console.log("Generated orderId:", orderId);
 
     // Calculate amounts
     const amount = Math.max(1, Math.round(Number(totalAmount))); // Minimum 1 NPR
-    console.log("Amount calculated:", amount);
+    // console.log("Amount calculated:", amount);
 
     // Prepare payload (ALL VALUES AS STRINGS)
     const payload = {
@@ -79,7 +79,7 @@ async function initiateEsewaPayment(req, res) {
 
     // Generate signature
     const signatureData = `total_amount=${payload.total_amount},transaction_uuid=${payload.transaction_uuid},product_code=${payload.product_code}`;
-    console.log("Signature data string:", signatureData);
+    // console.log("Signature data string:", signatureData);
 
     const secretKey = "8gBm/:&EnhH.1/q"; // Test secret key
     const signature = crypto
@@ -87,13 +87,13 @@ async function initiateEsewaPayment(req, res) {
       .update(signatureData)
       .digest("base64");
 
-    console.log("Generated signature:", signature);
+    // console.log("Generated signature:", signature);
 
     // Add signature to payload
     payload.signature = signature;
 
     // Log complete payload
-    console.log("\n=== FINAL PAYLOAD TO SEND ===");
+    // console.log("\n=== FINAL PAYLOAD TO SEND ===");
     Object.entries(payload).forEach(([key, value]) => {
       console.log(`${key.padEnd(25)}: ${value}`);
     });
