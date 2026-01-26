@@ -1,11 +1,9 @@
-require("./firebaseAdmin"); // ensure Firebase is initialized first
+const functions = require("firebase-functions");
+const { runDailyJob } = require("./jobs/dailyJob");
 
-const { processPriceEvolution } = require("./controllers/productPriceController");
+// Scheduled function — ONLY works on Firebase
+const dailyPriceUpdate = functions.pubsub
+  .schedule("every 24 hours")
+  .onRun(runDailyJob);
 
-async function run() {
-  console.log("Starting daily price evolution process...");
-  await processPriceEvolution();
-  console.log("Finished price evolution process.");
-}
-
-run().catch(console.error);
+module.exports = { dailyPriceUpdate };
