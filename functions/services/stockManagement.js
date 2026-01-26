@@ -7,7 +7,7 @@ const db = admin.firestore();
 // ----------------------------
 async function reserveStock(req, res) {
   const { productId, quantity } = req.body;
-  console.log("Reserve request:", productId, quantity);
+  // console.log("Reserve request:", productId, quantity);
 
   const productRef = db.collection("products").doc(productId);
 
