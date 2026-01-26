@@ -1,5 +1,4 @@
-const admin = require("../firebaseAdmin");
-const db = admin.firestore();
+const { db } = require("../firebaseAdmin");
 
 /**
  * Fetch all products eligible for depreciation/appreciation
@@ -37,12 +36,11 @@ async function fetchDepreciatingProducts() {
 /**
  * Update product price and depreciation count
  */
-async function updateProductPrice(productId, newPrice, depreciationCount) {
-  await db.collection("products").doc(productId).update({
-    currentPrice: newPrice,
-    depreciationCount: depreciationCount,
-    lastDepreciatedAt: new Date(),
-  });
+async function updateProductPrice(productId, newPrice, ageDays) {
+await db.collection("products").doc(productId).update({
+currentPrice: newPrice,
+age_days: ageDays
+});
 }
 
 module.exports = { fetchDepreciatingProducts, updateProductPrice };
