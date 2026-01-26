@@ -71,3 +71,4 @@ node_modules/
 .dataconnect
 echo "functions/serviceAccountKeys.json" >> .gitignorefunctions/serviceAccountKeys.json
 functions/serviceAccountKeys.json
+functions/serviceAccountKeys.json
