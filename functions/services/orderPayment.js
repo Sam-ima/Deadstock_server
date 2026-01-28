@@ -1,5 +1,4 @@
-const admin = require("../firebaseAdmin");
-const db = admin.firestore();
+const { admin, db } = require("../firebaseAdmin");
 
 async function createOrder({
   userId,
@@ -19,13 +18,11 @@ async function createOrder({
     deliveryDetails: deliveryDetails || {},
     paymentMethod: "ESEWA",
     paymentStatus: "PENDING",
-    transactionUuid, // ✅ STORE THIS
+    transactionUuid,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
-  return {
-    orderId: orderRef.id,
-  };
+  return { orderId: orderRef.id };
 }
 
 async function markOrderPaid(orderId, refId) {

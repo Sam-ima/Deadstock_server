@@ -1,6 +1,5 @@
-// functions/stockController.js
-const admin = require("../firebaseAdmin");
-const db = admin.firestore();
+const { admin, db } = require("../firebaseAdmin");
+
 
 // ----------------------------
 // Reserve Stock (atomic)
