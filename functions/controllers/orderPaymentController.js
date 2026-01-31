@@ -1,5 +1,7 @@
 // backend/controllers/payment.controller.js
+const { admin, db } = require("../firebaseAdmin");
 const crypto = require("crypto");
+const { createCommissionTransactions } = require( "../services/commissionService");
 const {
   createOrder,
   markOrderPaid,
@@ -170,8 +172,16 @@ async function paymentSuccessCallback(req, res) {
 
     if (orderId) {
       await markOrderPaid(orderId, ref_id || transaction_uuid);
+      // 2. Get the order data
+      const orderDoc = await admin.firestore().collection("orders").doc(orderId).get();
+      
+      if (orderDoc.exists) {
+        const orderData = orderDoc.data();
+        
+        // 3. Create commission transactions
+        await createCommissionTransactions(orderId, orderData);
     }
-
+  }
     // Redirect to frontend success page
     res.redirect(
       `http://localhost:5173/checkout?status=success&orderId=${orderId || ""}`,
