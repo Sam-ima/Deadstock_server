@@ -1,25 +1,6 @@
 module.exports.UPDATE_INTERVALS = {
-  electronics: {
-    mobile: 30,
-    refrigerator: 60,
-    laptop: 45,
-    default: 30
-  },
-  clothes: {
-    men: 15,
-    women: 15,
-    kids: 20,
-    seasonal: 10,
-    default: 15
-  },
-  furniture: {
-    sofa: 90,
-    table: 120,
-    default: 90
-  },
-  art: {
-    painting: 180,
-    sculpture: 365,
-    default: 180
-  }
+  electronics: { mobile: 1, laptop: 2, default: 1 },
+  clothes: { men: 1, women: 1, default: 1 },
+  furniture: { sofa: 5, table: 10, default: 5 },
+  art: { painting: 30, sculpture: 60, default: 30 }
 };

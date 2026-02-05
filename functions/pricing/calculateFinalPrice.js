@@ -3,15 +3,18 @@ const { clothesRule } = require("./rules/clothesRule");
 const { furnitureRule } = require("./rules/furnitureRule");
 const { artRule } = require("./rules/artRule");
 
-module.exports.calculateFinalPrice = (product, ageDays, season) => {
-  let price;
+function calculateFinalPrice(product, ageDays) {
+  const basePrice = Number(product.basePrice);
+  const currentPrice = Number(product.currentPrice) || basePrice;
+  const floorPrice = Number(product.floorPrice) || basePrice * 0.5;
+  let price = currentPrice;
 
-  switch (product.category) {
+  switch (product.categoryName) {
     case "electronics":
       price = electronicsRule(product, ageDays);
       break;
     case "clothes":
-      price = clothesRule(product, ageDays, season);
+      price = clothesRule(product, ageDays);
       break;
     case "furniture":
       price = furnitureRule(product, ageDays);
@@ -20,8 +23,11 @@ module.exports.calculateFinalPrice = (product, ageDays, season) => {
       price = artRule(product, ageDays);
       break;
     default:
-      price = product.original_price;
+      price = currentPrice;
   }
 
-  return Math.max(price, product.floor_price);
-};
+  // Ensure price doesn't go below floorPrice
+  return Math.max(price, floorPrice);
+}
+
+module.exports = { calculateFinalPrice };

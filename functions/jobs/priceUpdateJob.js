@@ -1,40 +1,50 @@
-const functions = require("firebase-functions");
-const { db } = require("../firebaseAdmin");
+const { fetchDepreciatingProducts, updateProductPrice } = require("../services/productServices");
 const { daysBetween } = require("../utils/dateUtils");
-const { currentSeason } = require("../utils/seasonUtils");
-const { UPDATE_INTERVALS } = require("../pricing/updateIntervals");
 const { calculateFinalPrice } = require("../pricing/calculateFinalPrice");
 
-exports.updatePricesScheduled = functions.pubsub
-  .schedule("every day 00:00")
-  .timeZone("Asia/Kathmandu")
-  .onRun(async () => {
-    const snapshot = await db.collection("products").get();
-    const today = new Date();
-    const season = currentSeason();
+async function updateSingleProductPrice(productId) {
+  const products = await fetchDepreciatingProducts();
+  const product = products.find(p => p.id === productId);
+  if (!product) throw new Error("Product not found");
 
-    for (const doc of snapshot.docs) {
-      const product = doc.data();
+  const today = new Date();
+  const manufactureDate = product.manufacture_date ? new Date(product.manufacture_date) : product.createdAt.toDate();
+  const ageDays = daysBetween(manufactureDate, today);
 
-      const categoryRules = UPDATE_INTERVALS[product.category];
-      const interval =
-        categoryRules?.[product.subcategory] ||
-        categoryRules?.default ||
-        30;
+  const lastUpdate = product.lastDepreciatedAt ? new Date(product.lastDepreciatedAt) : manufactureDate;
+  const daysSinceUpdate = daysBetween(lastUpdate, today);
 
-      const lastUpdate = product.last_price_update?.toDate?.() || product.created_at.toDate();
-      const daysSinceUpdate = daysBetween(lastUpdate, today);
+  if (daysSinceUpdate < 1) return product.currentPrice;
 
-      if (daysSinceUpdate >= interval) {
-        const ageDays = daysBetween(product.created_at.toDate(), today);
-        const newPrice = calculateFinalPrice(product, ageDays, season);
+  const newPrice = calculateFinalPrice(product, ageDays);
 
-        await doc.ref.update({
-          current_price: Math.round(newPrice),
-          last_price_update: today
-        });
-      }
-    }
+  await updateProductPrice(product.id, Math.round(newPrice), (product.depreciationCount || 0) + daysSinceUpdate);
 
-    return null;
-  });
+  console.log(`✅ ${product.name}: ${product.currentPrice} → ${Math.round(newPrice)}`);
+  return newPrice;
+}
+
+async function updatePricesScheduled() {
+  const products = await fetchDepreciatingProducts();
+  const today = new Date();
+
+  for (const product of products) {
+    const manufactureDate = product.manufacture_date ? new Date(product.manufacture_date) : product.createdAt.toDate();
+    const ageDays = daysBetween(manufactureDate, today);
+
+    const lastUpdate = product.lastDepreciatedAt ? new Date(product.lastDepreciatedAt) : manufactureDate;
+    const daysSinceUpdate = daysBetween(lastUpdate, today);
+
+    if (daysSinceUpdate < 1) continue;
+
+    const newPrice = calculateFinalPrice(product, ageDays);
+
+    await updateProductPrice(product.id, Math.round(newPrice), (product.depreciationCount || 0) + daysSinceUpdate);
+
+    console.log(`✅ ${product.name}: ${product.currentPrice} → ${Math.round(newPrice)}`);
+  }
+
+  console.log("Daily depreciation job finished");
+}
+
+module.exports = { updateSingleProductPrice, updatePricesScheduled };
