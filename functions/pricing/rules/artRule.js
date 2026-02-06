@@ -1,4 +1,7 @@
+// pricing/rules/artRule.js
+
 module.exports.artRule = (product, ageDays) => {
-  const appreciation = (ageDays / 365) * 0.05;
-  return product.original_price * (1 + appreciation + product.demand_score * 0.10);
+  const rate = 0.001; // slow appreciation 0.1% daily
+  const price = Number(product.currentPrice || product.basePrice);
+  return price * Math.pow(1 + rate, ageDays);
 };
