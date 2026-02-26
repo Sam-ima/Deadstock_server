@@ -1,5 +1,5 @@
 require("./firebaseAdmin"); // Initialize Firebase Admin
-
+const { updatePricesScheduled } = require("./jobs/priceUpdateJob"); // ← FIXED
 const express = require("express");
 const cors = require("cors");
 
@@ -24,4 +24,18 @@ app.get("/", (req, res) => {
 
 // start server
 const PORT = 4000;
-app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server listening on ${PORT}`);
+
+  // ✅ Run depreciation for ALL products on startup
+  updatePricesScheduled()
+    .then(() => console.log("✅ Depreciation check done"))
+    .catch(console.error);
+
+  // ✅ Run every 24 hours automatically
+  setInterval(() => {
+    updatePricesScheduled()
+      .then(() => console.log("✅ Daily depreciation done"))
+      .catch(console.error);
+  }, 24 * 60 * 60 * 1000);
+});
