@@ -1,52 +1,56 @@
 // pricing/calculateFinalPrice.js
-//
-// FIX: ageDays was being passed correctly here but NOT passed from updatePricesScheduled.
-//      That is fixed in priceUpdateJob.js. This file is now clean and correct.
 
-const { electronicsRule } = require("./rules/electronicsRule");
-const { clothesRule } = require("./rules/clothesRule");
-const { furnitureRule } = require("./rules/furnitureRule");
-const { artRule } = require("./rules/artRule");
+const { DEPRECIATION_RULES } = require("./depreciationRules");
 
 /**
- * Calculate the new price for a product based on its category rules.
- *
- * @param {object} product - Full product object from Firestore
- * @param {number} ageDays - Total age of product in days from manufacture_date
- * @param {string} season  - Current season string e.g. "winter"
- * @returns {number} - New price (always >= floorPrice)
+ * Resolves a rule — handles both direct rules and "ref" aliases
+ * e.g. "fashion" → ref: "clothes" → returns the clothes rule
  */
-module.exports.calculateFinalPrice = (product, ageDays, season) => {
-  const basePrice = Number(product.basePrice);
+function resolveRule(categoryKey) {
+  const entry = DEPRECIATION_RULES[categoryKey];
+  if (!entry) return DEPRECIATION_RULES.default;
+  if (entry.ref) return DEPRECIATION_RULES[entry.ref] || DEPRECIATION_RULES.default;
+  return entry;
+}
+
+/**
+ * Calculate new price for a product based on its age and category rules.
+ *
+ * @param {object} product  - Full product object from Firestore
+ * @param {number} ageDays  - Total days since manufacture_date
+ * @returns {number}        - New price (always >= floorPrice)
+ */
+module.exports.calculateFinalPrice = (product, ageDays) => {
+  const basePrice  = Number(product.basePrice);
   const floorPrice = Number(product.floorPrice) || basePrice * 0.5;
 
-  // Guard: if ageDays is missing or invalid, keep current price
+  // Guard: invalid ageDays → no change
   if (typeof ageDays !== "number" || isNaN(ageDays) || ageDays < 0) {
-    console.warn(`⚠️ Invalid ageDays for product ${product.id} — keeping currentPrice`);
-    return Number(product.currentPrice) || basePrice;
+    console.warn(`⚠️ Invalid ageDays for ${product.name} — keeping basePrice`);
+    return basePrice;
   }
 
-  let price = Number(product.currentPrice) || basePrice;
+  // Resolve rule for this category
+  const categoryKey = (product.categoryName || "").toLowerCase().trim();
+  const rule = resolveRule(categoryKey);
 
-  switch ((product.categoryName || "").toLowerCase()) {
-    case "electronics":
-      price = electronicsRule(product, ageDays);
-      break;
-    case "clothes":
-      price = clothesRule(product, ageDays, season);
-      break;
-    case "furniture":
-      price = furnitureRule(product, ageDays);
-      break;
-    case "art":
-      price = artRule(product, ageDays);
-      break;
-    default:
-      // Unknown category — apply a simple 0.1% daily depreciation from basePrice
-      price = basePrice * Math.pow(1 - 0.001, ageDays);
-      break;
+  // ── Not old enough to start depreciating yet ──
+  if (ageDays < rule.startAfterDays) {
+    return basePrice; // No change yet
   }
 
-  // Always enforce floor price
-  return Math.max(price, floorPrice);
+  // ── ART / ANTIQUES: Appreciation ──
+  if (rule.appreciation) {
+    const stage = [...rule.stages].reverse().find(s => ageDays >= s.afterDays);
+    if (!stage) return basePrice;
+    const newPrice = basePrice + (basePrice * stage.gainPercent / 100);
+    return Math.min(newPrice, basePrice * 2); // Cap at 2× basePrice
+  }
+
+  // ── ALL OTHER CATEGORIES: Stage-based depreciation ──
+  const stage = [...rule.stages].reverse().find(s => ageDays >= s.afterDays);
+  if (!stage) return basePrice;
+
+  const newPrice = basePrice - (basePrice * stage.dropPercent / 100);
+  return Math.max(newPrice, floorPrice); // Never below floor
 };
