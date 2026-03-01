@@ -1,29 +1,18 @@
 // pricing/depreciationRules.js
 //
-// VERIFIED REAL-WORLD DEPRECIATION RULES
+// VERIFIED REAL-WORLD DEPRECIATION & APPRECIATION RULES
 // Sources:
-//   - IRS MACRS depreciation schedules (5-year, 7-year property classes)
-//   - ClaimsPages.com depreciation calculator (insurance industry standard)
-//   - United Policyholders depreciation guide
+//   - IRS Publication 946 — MACRS depreciation schedules
+//   - ClaimsPages.com depreciation calculator
+//   - United Policyholders Depreciation Guide
 //   - Retail industry markdown standards
-//
-// HOW STAGE-BASED RULES WORK:
-//   - "startAfterDays"  → product does NOT depreciate until this age is reached
-//   - stages[]          → each stage defines a price DROP % from basePrice once ageDays >= afterDays
-//   - "appreciation"    → true means price goes UP (art, antiques, collectibles)
-//   - floorPrice from Firestore is always enforced — price never drops below it
-//
-// CATEGORY NAME MATCHING:
-//   The key in this object must match product.categoryName (lowercased) from Firestore
-//   Add as many aliases as you need — they all point to the same rule logic
 
 module.exports.DEPRECIATION_RULES = {
 
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
   //  CLOTHES / FASHION
-  //  Source: Retail industry markdown standards
-  //  Rule: Fresh 30 days → 20% off at 30d → 50% off at 60d → near-clearance at 90d
-  // ─────────────────────────────────────────────────────────
+  //  Source: Retail 30/60/90 day markdown standard
+  // ─────────────────────────────────────────
   clothes: {
     startAfterDays: 30,
     stages: [
@@ -32,16 +21,19 @@ module.exports.DEPRECIATION_RULES = {
       { afterDays: 90,  dropPercent: 70 },
     ]
   },
-  fashion:   { ref: "clothes" },
-  clothing:  { ref: "clothes" },
-  apparel:   { ref: "clothes" },
-  garments:  { ref: "clothes" },
+  fashion:           { ref: "clothes" },
+  clothing:          { ref: "clothes" },
+  apparel:           { ref: "clothes" },
+  garments:          { ref: "clothes" },
+  seasonal_clothing: { ref: "clothes" },
+  "men's fashion":   { ref: "clothes" },
+  "women's fashion": { ref: "clothes" },
+  "kids fashion":    { ref: "clothes" },
 
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
   //  ELECTRONICS
-  //  Source: IRS 5-year MACRS property class, ClaimsPages insurance guide
-  //  Rule: Starts immediately, steep early drop (tech obsolescence)
-  // ─────────────────────────────────────────────────────────
+  //  Source: IRS MACRS 5-Year Property Class
+  // ─────────────────────────────────────────
   electronics: {
     startAfterDays: 0,
     stages: [
@@ -53,16 +45,19 @@ module.exports.DEPRECIATION_RULES = {
       { afterDays: 1095, dropPercent: 70 },
     ]
   },
-  gadgets:  { ref: "electronics" },
-  mobiles:  { ref: "electronics" },
-  computers:{ ref: "electronics" },
-  phones:   { ref: "electronics" },
+  gadgets:          { ref: "electronics" },
+  mobiles:          { ref: "electronics" },
+  computers:        { ref: "electronics" },
+  phones:           { ref: "electronics" },
+  "consumer electronics": { ref: "electronics" },
+  cameras:          { ref: "electronics" },
+  audio:            { ref: "electronics" },
+  drones:           { ref: "electronics" },
 
-  // ─────────────────────────────────────────────────────────
-  //  FURNITURE
-  //  Source: IRS 7-year MACRS property class, ClaimsPages guide
-  //  Rule: No depreciation for 6 months, then slow steady drop over 5-7 years
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
+  //  FURNITURE / HOME & GARDEN
+  //  Source: IRS MACRS 7-Year Property Class
+  // ─────────────────────────────────────────
   furniture: {
     startAfterDays: 180,
     stages: [
@@ -73,17 +68,21 @@ module.exports.DEPRECIATION_RULES = {
       { afterDays: 1825, dropPercent: 50 },
     ]
   },
-  home:       { ref: "furniture" },
-  homewares:  { ref: "furniture" },
-  decor:      { ref: "furniture" },
+  home:              { ref: "furniture" },
+  homewares:         { ref: "furniture" },
+  decor:             { ref: "furniture" },
+  "home & garden":   { ref: "furniture" },   // ← FIXED
+  "home and garden": { ref: "furniture" },
+  garden:            { ref: "furniture" },
+  "home decor":      { ref: "furniture" },
+  "home furniture":  { ref: "furniture" },
 
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
   //  ART / ANTIQUES / COLLECTIBLES
-  //  Source: United Policyholders guide — "antiques, fine art and jewelry
-  //          should not be subject to any depreciation" + art market appreciation data
-  //  Rule: No change for 1 year, then appreciates slowly (price goes UP)
-  //        Capped at 2× basePrice
-  // ─────────────────────────────────────────────────────────
+  //  Source: United Policyholders Guide —
+  //  "antiques and fine art should not depreciate"
+  //  These APPRECIATE in value
+  // ─────────────────────────────────────────
   art: {
     startAfterDays: 365,
     appreciation: true,
@@ -95,15 +94,34 @@ module.exports.DEPRECIATION_RULES = {
       { afterDays: 3650, gainPercent: 80 },
     ]
   },
+  arts:         { ref: "art" },        // ← FIXED (was missing)
   antiques:     { ref: "art" },
+  antique:      { ref: "art" },
   collectibles: { ref: "art" },
+  collectible:  { ref: "art" },
   paintings:    { ref: "art" },
+  "fine art":   { ref: "art" },
+  "arts & crafts": { ref: "art" },
 
-  // ─────────────────────────────────────────────────────────
-  //  SPORTS / SPORTING GOODS
-  //  Source: ClaimsPages "Hobbies and Sporting Goods" — useful life ~5 years
-  //  Rule: Stable for 60 days, then moderate depreciation
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
+  //  JEWELRY / WATCHES
+  //  Source: United Policyholders Guide
+  // ─────────────────────────────────────────
+  jewelry: {
+    startAfterDays: 365,
+    stages: [
+      { afterDays: 365,  dropPercent: 5  },
+      { afterDays: 730,  dropPercent: 10 },
+      { afterDays: 1825, dropPercent: 20 },
+    ]
+  },
+  watches:     { ref: "jewelry" },
+  accessories: { ref: "jewelry" },
+
+  // ─────────────────────────────────────────
+  //  SPORTS / FITNESS
+  //  Source: ClaimsPages "Hobbies and Sporting Goods"
+  // ─────────────────────────────────────────
   sports: {
     startAfterDays: 60,
     stages: [
@@ -114,15 +132,14 @@ module.exports.DEPRECIATION_RULES = {
       { afterDays: 1095, dropPercent: 65 },
     ]
   },
-  "sporting goods": { ref: "sports" },
   fitness:          { ref: "sports" },
   outdoors:         { ref: "sports" },
+  "sporting goods": { ref: "sports" },
 
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
   //  TOYS / GAMES
-  //  Source: ClaimsPages "Toys and Games" — useful life ~3-4 years
-  //  Rule: Drops quickly (seasonal demand, trend-based)
-  // ─────────────────────────────────────────────────────────
+  //  Source: ClaimsPages "Toys and Games"
+  // ─────────────────────────────────────────
   toys: {
     startAfterDays: 30,
     stages: [
@@ -133,16 +150,13 @@ module.exports.DEPRECIATION_RULES = {
       { afterDays: 730,  dropPercent: 70 },
     ]
   },
-  games:   { ref: "toys" },
-  kids:    { ref: "toys" },
-  "baby items": { ref: "toys" },
+  games: { ref: "toys" },
+  kids:  { ref: "toys" },
 
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
   //  BOOKS / MEDIA
-  //  Source: ClaimsPages "Books" — mass-market fiction depreciates quickly,
-  //          reference books slower. Using average rule here.
-  //  Rule: Starts after 30 days, moderate drop
-  // ─────────────────────────────────────────────────────────
+  //  Source: ClaimsPages "Books"
+  // ─────────────────────────────────────────
   books: {
     startAfterDays: 30,
     stages: [
@@ -156,29 +170,10 @@ module.exports.DEPRECIATION_RULES = {
   music:  { ref: "books" },
   movies: { ref: "books" },
 
-  // ─────────────────────────────────────────────────────────
-  //  JEWELRY / WATCHES
-  //  Source: United Policyholders — "jewelry should not be subject to depreciation"
-  //          Fine jewelry holds value; costume jewelry depreciates.
-  //  Rule: No depreciation for 1 year, then very slow drop (costume jewelry),
-  //        fine jewelry stays stable
-  // ─────────────────────────────────────────────────────────
-  jewelry: {
-    startAfterDays: 365,
-    stages: [
-      { afterDays: 365,  dropPercent: 5  },
-      { afterDays: 730,  dropPercent: 10 },
-      { afterDays: 1825, dropPercent: 20 },
-    ]
-  },
-  watches:    { ref: "jewelry" },
-  accessories:{ ref: "jewelry" },
-
-  // ─────────────────────────────────────────────────────────
-  //  COSMETICS / BEAUTY / PERSONAL CARE
-  //  Source: Industry standard — short shelf life, expiry dates
-  //  Rule: Starts depreciating after 30 days, drops fast (expiry concern)
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
+  //  COSMETICS / BEAUTY
+  //  Source: Product expiry standard
+  // ─────────────────────────────────────────
   cosmetics: {
     startAfterDays: 30,
     stages: [
@@ -188,14 +183,13 @@ module.exports.DEPRECIATION_RULES = {
       { afterDays: 270,  dropPercent: 75 },
     ]
   },
-  beauty:      { ref: "cosmetics" },
-  skincare:    { ref: "cosmetics" },
-  "personal care": { ref: "cosmetics" },
+  beauty:   { ref: "cosmetics" },
+  skincare: { ref: "cosmetics" },
 
-  // ─────────────────────────────────────────────────────────
-  //  FOOD / GROCERY / PERISHABLES
-  //  Rule: Immediate depreciation — expires quickly
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
+  //  FOOD / GROCERY
+  //  Source: Perishable goods standard
+  // ─────────────────────────────────────────
   food: {
     startAfterDays: 0,
     stages: [
@@ -206,15 +200,14 @@ module.exports.DEPRECIATION_RULES = {
       { afterDays: 60,  dropPercent: 80 },
     ]
   },
-  grocery:    { ref: "food" },
-  perishables:{ ref: "food" },
-  beverages:  { ref: "food" },
+  grocery:     { ref: "food" },
+  perishables: { ref: "food" },
+  beverages:   { ref: "food" },
 
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
   //  TOOLS / HARDWARE
-  //  Source: IRS 5-7 year class, durable goods
-  //  Rule: Stable for 90 days, slow depreciation
-  // ─────────────────────────────────────────────────────────
+  //  Source: IRS 5-7 year durable goods
+  // ─────────────────────────────────────────
   tools: {
     startAfterDays: 90,
     stages: [
@@ -224,13 +217,31 @@ module.exports.DEPRECIATION_RULES = {
       { afterDays: 1825, dropPercent: 50 },
     ]
   },
-  hardware:   { ref: "tools" },
-  equipment:  { ref: "tools" },
+  hardware:  { ref: "tools" },
+  equipment: { ref: "tools" },
 
-  // ─────────────────────────────────────────────────────────
-  //  DEFAULT (unknown / unmatched category)
+  // ─────────────────────────────────────────
+  //  AUTOMOTIVE / VEHICLES
+  //  Source: IRS 5-year vehicle depreciation
+  // ─────────────────────────────────────────
+  automotive: {
+    startAfterDays: 0,
+    stages: [
+      { afterDays: 0,    dropPercent: 0  },
+      { afterDays: 365,  dropPercent: 20 },
+      { afterDays: 730,  dropPercent: 35 },
+      { afterDays: 1095, dropPercent: 50 },
+      { afterDays: 1825, dropPercent: 65 },
+    ]
+  },
+  vehicles: { ref: "automotive" },
+  cars:     { ref: "automotive" },
+  auto:     { ref: "automotive" },
+
+  // ─────────────────────────────────────────
+  //  DEFAULT — unknown category
   //  Conservative moderate depreciation
-  // ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────
   default: {
     startAfterDays: 60,
     stages: [

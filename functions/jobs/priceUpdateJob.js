@@ -7,9 +7,24 @@ const {
 } = require("../services/productServices");
 const { daysBetween, toDate } = require("../utils/dateUtils");
 const { calculateFinalPrice } = require("../pricing/calculateFinalPrice");
+const { DEPRECIATION_RULES } = require("../pricing/depreciationRules");
+
+// Appreciation categories — if a product with isDepreciating:true
+// belongs to one of these, it gets SKIPPED with a warning
+const APPRECIATION_CATEGORIES = ["art", "arts", "antiques", "antique",
+  "collectibles", "collectible", "paintings", "fine art", "arts & crafts"];
+
+function isAppreciationCategory(categoryName) {
+  const key = (categoryName || "").toLowerCase().trim();
+  if (APPRECIATION_CATEGORIES.includes(key)) return true;
+  const rule = DEPRECIATION_RULES[key];
+  if (!rule) return false;
+  const resolved = rule.ref ? DEPRECIATION_RULES[rule.ref] : rule;
+  return resolved && resolved.appreciation === true;
+}
 
 /**
- * Process a list of products — shared logic for both depreciation and appreciation
+ * Shared logic for both depreciation and appreciation
  */
 async function processProducts(products, isAppreciation) {
   const today = new Date();
@@ -18,6 +33,17 @@ async function processProducts(products, isAppreciation) {
 
   for (const product of products) {
     try {
+      // ── Safety: skip appreciation categories in depreciation job ──
+      if (!isAppreciation && isAppreciationCategory(product.categoryName)) {
+        console.warn(
+          `⚠️  SKIPPED ${product.name} (category: "${product.categoryName}") ` +
+          `— this is an appreciation category. ` +
+          `Fix in Firestore: isDepreciating→false, isAppreciating→true`
+        );
+        skippedCount++;
+        continue;
+      }
+
       // ── 1. Get manufacture date ──
       const manufactureDate = product.manufacture_date
         ? new Date(product.manufacture_date)
@@ -29,10 +55,10 @@ async function processProducts(products, isAppreciation) {
         continue;
       }
 
-      // ── 2. Calculate age in days ──
+      // ── 2. Age in days ──
       const ageDays = daysBetween(manufactureDate, today);
 
-      // ── 3. Skip if already updated today ──
+      // ── 3. Skip if updated today already ──
       const lastUpdate = product.lastDepreciatedAt
         ? toDate(product.lastDepreciatedAt)
         : null;
@@ -45,17 +71,17 @@ async function processProducts(products, isAppreciation) {
       }
 
       // ── 4. Calculate new price ──
-      const newPrice = calculateFinalPrice(product, ageDays);
+      const newPrice    = calculateFinalPrice(product, ageDays);
       const roundedPrice = Math.round(newPrice);
 
-      // ── 5. Skip if price hasn't changed yet (too new) ──
+      // ── 5. Skip if not old enough yet ──
       if (roundedPrice === Math.round(Number(product.basePrice))) {
         console.log(`⏳ ${product.name} — not old enough yet (age: ${ageDays}d)`);
         skippedCount++;
         continue;
       }
 
-      // ── 6. Check floor / ceiling ──
+      // ── 6. Floor / ceiling check ──
       const basePrice  = Number(product.basePrice);
       const floorPrice = Number(product.floorPrice) || basePrice * 0.5;
       const ceiling    = basePrice * 2;
@@ -63,59 +89,51 @@ async function processProducts(products, isAppreciation) {
       const hitFloor   = !isAppreciation && roundedPrice <= floorPrice;
       const hitCeiling =  isAppreciation && roundedPrice >= ceiling;
 
-      // ── 7. Get count field ──
-      const countField = isAppreciation
+      // ── 7. Count ──
+      const newCount = isAppreciation
         ? (product.appreciationCount || 0) + 1
         : (product.depreciationCount || 0) + 1;
 
-      // ── 8. Update Firestore ──
+      // ── 8. Save to Firestore ──
       await updateProductPrice(
-        product.id,
-        roundedPrice,
-        countField,
-        hitFloor,
-        hitCeiling,
-        isAppreciation
+        product.id, roundedPrice, newCount,
+        hitFloor, hitCeiling, isAppreciation
       );
 
       const arrow = isAppreciation ? "📈" : "📉";
       console.log(
         `${arrow} ${product.name} | Category: ${product.categoryName} | Age: ${ageDays}d | ` +
         `${product.currentPrice} → ${roundedPrice}` +
-        (hitFloor    ? " | 🏁 Floor reached — stopped"   : "") +
-        (hitCeiling  ? " | 🏆 Ceiling reached — stopped" : "")
+        (hitFloor   ? " | 🏁 Floor reached — stopped"   : "") +
+        (hitCeiling ? " | 🏆 Ceiling reached — stopped" : "")
       );
-
       updatedCount++;
+
     } catch (err) {
-      console.error(`❌ Error processing ${product.name || product.id}:`, err.message);
+      console.error(`❌ Error: ${product.name || product.id}:`, err.message);
     }
   }
-
   return { updatedCount, skippedCount };
 }
 
 /**
- * Main job — runs depreciation AND appreciation for all eligible products
- * Called on server startup and every 24 hours
+ * Main job — runs depreciation AND appreciation
  */
 async function updatePricesScheduled() {
   console.log("\n🔄 Starting price update job...");
 
-  // ── Run DEPRECIATION (isDepreciating: true) ──
   const depProducts = await fetchDepreciatingProducts();
   console.log(`\n📉 Depreciating products found: ${depProducts.length}`);
   const depResult = await processProducts(depProducts, false);
 
-  // ── Run APPRECIATION (isAppreciating: true) ──
   const appProducts = await fetchAppreciatingProducts();
   console.log(`\n📈 Appreciating products found: ${appProducts.length}`);
   const appResult = await processProducts(appProducts, true);
 
   console.log(
     `\n📊 Job complete:` +
-    `\n   Depreciation → ${depResult.updatedCount} updated, ${depResult.skippedCount} skipped` +
-    `\n   Appreciation → ${appResult.updatedCount} updated, ${appResult.skippedCount} skipped`
+    `\n   📉 Depreciation → ${depResult.updatedCount} updated, ${depResult.skippedCount} skipped` +
+    `\n   📈 Appreciation → ${appResult.updatedCount} updated, ${appResult.skippedCount} skipped`
   );
 }
 
