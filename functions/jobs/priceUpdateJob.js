@@ -1,139 +1,118 @@
 // jobs/priceUpdateJob.js
+//
+// SINGLE FLAG LOGIC:
+//   isDepreciating: true  = product is active in pricing system
+//   Category/subcategory  = decides UP (appreciation) or DOWN (depreciation) automatically
+//   Floor price hit       = price stays at floor, isDepreciating stays TRUE
+//   No isAppreciating field needed
 
-const {
-  fetchDepreciatingProducts,
-  fetchAppreciatingProducts,
-  updateProductPrice,
-} = require("../services/productServices");
-const { daysBetween, toDate } = require("../utils/dateUtils");
-const { calculateFinalPrice } = require("../pricing/calculateFinalPrice");
-const { DEPRECIATION_RULES } = require("../pricing/depreciationRules");
+const { fetchActiveProducts, updateProductPrice } = require("../services/productServices");
+const { daysBetween, toDate }                     = require("../utils/dateUtils");
+const { calculateFinalPrice }                     = require("../pricing/calculateFinalPrice");
 
-// Appreciation categories — if a product with isDepreciating:true
-// belongs to one of these, it gets SKIPPED with a warning
-const APPRECIATION_CATEGORIES = ["art", "arts", "antiques", "antique",
-  "collectibles", "collectible", "paintings", "fine art", "arts & crafts"];
+async function updatePricesScheduled() {
+  console.log("\n🔄 Starting price update job...");
 
-function isAppreciationCategory(categoryName) {
-  const key = (categoryName || "").toLowerCase().trim();
-  if (APPRECIATION_CATEGORIES.includes(key)) return true;
-  const rule = DEPRECIATION_RULES[key];
-  if (!rule) return false;
-  const resolved = rule.ref ? DEPRECIATION_RULES[rule.ref] : rule;
-  return resolved && resolved.appreciation === true;
-}
+  const products = await fetchActiveProducts();
 
-/**
- * Shared logic for both depreciation and appreciation
- */
-async function processProducts(products, isAppreciation) {
+  if (!products.length) {
+    console.log("No active depreciating products found.");
+    return;
+  }
+
+  console.log(`📦 Products to process: ${products.length}\n`);
+
   const today = new Date();
-  let updatedCount = 0;
-  let skippedCount = 0;
+  let depUpdated = 0, appUpdated = 0, skipped = 0;
 
   for (const product of products) {
     try {
-      // ── Safety: skip appreciation categories in depreciation job ──
-      if (!isAppreciation && isAppreciationCategory(product.categoryName)) {
-        console.warn(
-          `⚠️  SKIPPED ${product.name} (category: "${product.categoryName}") ` +
-          `— this is an appreciation category. ` +
-          `Fix in Firestore: isDepreciating→false, isAppreciating→true`
-        );
-        skippedCount++;
-        continue;
-      }
-
       // ── 1. Get manufacture date ──
       const manufactureDate = product.manufacture_date
         ? new Date(product.manufacture_date)
         : toDate(product.createdAt);
 
       if (!manufactureDate || isNaN(manufactureDate.getTime())) {
-        console.warn(`⚠️  Skipping ${product.name} — invalid manufacture_date`);
-        skippedCount++;
+        console.warn(`⚠️  Skipping "${product.name}" — invalid manufacture_date`);
+        skipped++;
         continue;
       }
 
-      // ── 2. Age in days ──
+      // ── 2. Age from manufacture date ──
       const ageDays = daysBetween(manufactureDate, today);
 
-      // ── 3. Skip if updated today already ──
-      const lastUpdate = product.lastDepreciatedAt
-        ? toDate(product.lastDepreciatedAt)
-        : null;
+      // ── 3. Skip if already updated today ──
+      const lastUpdate      = product.lastDepreciatedAt ? toDate(product.lastDepreciatedAt) : null;
       const daysSinceUpdate = lastUpdate ? daysBetween(lastUpdate, today) : 999;
 
       if (daysSinceUpdate < 1) {
-        console.log(`⏭️  Skipping ${product.name} — already updated today`);
-        skippedCount++;
+        console.log(`⏭️  "${product.name}" — already updated today`);
+        skipped++;
         continue;
       }
 
-      // ── 4. Calculate new price ──
-      const newPrice    = calculateFinalPrice(product, ageDays);
-      const roundedPrice = Math.round(newPrice);
+      // ── 4. Calculate new price (auto-detects appreciation from category) ──
+      const { newPrice, isAppreciation, matchedOn, stage, tooNew } =
+        calculateFinalPrice(product, ageDays);
 
-      // ── 5. Skip if not old enough yet ──
-      if (roundedPrice === Math.round(Number(product.basePrice))) {
-        console.log(`⏳ ${product.name} — not old enough yet (age: ${ageDays}d)`);
-        skippedCount++;
+      // ── 5. Too new — not reached startAfterDays yet ──
+      if (tooNew) {
+        console.log(`⏳ "${product.name}" — not old enough yet (age: ${ageDays}d) [${matchedOn}]`);
+        skipped++;
         continue;
       }
 
-      // ── 6. Floor / ceiling check ──
-      const basePrice  = Number(product.basePrice);
-      const floorPrice = Number(product.floorPrice) || basePrice * 0.5;
-      const ceiling    = basePrice * 2;
+      // ── 6. At floor price — price unchanged, skip update but keep isDepreciating:true ──
+      const floorPrice = Number(product.floorPrice) || Number(product.basePrice) * 0.5;
+      const atFloor    = !isAppreciation && newPrice <= floorPrice &&
+                         Math.round(Number(product.currentPrice)) <= floorPrice;
 
-      const hitFloor   = !isAppreciation && roundedPrice <= floorPrice;
-      const hitCeiling =  isAppreciation && roundedPrice >= ceiling;
+      if (atFloor) {
+        console.log(`🏁 "${product.name}" — at floor price Rs.${floorPrice}, no change (isDepreciating stays true)`);
+        skipped++;
+        continue;
+      }
 
-      // ── 7. Count ──
-      const newCount = isAppreciation
+      // ── 7. Price unchanged — skip ──
+      if (newPrice === Math.round(Number(product.currentPrice))) {
+        console.log(`➡️  "${product.name}" — price unchanged at Rs.${newPrice}`);
+        skipped++;
+        continue;
+      }
+
+      // ── 8. Get count field ──
+      const count = isAppreciation
         ? (product.appreciationCount || 0) + 1
         : (product.depreciationCount || 0) + 1;
 
-      // ── 8. Save to Firestore ──
-      await updateProductPrice(
-        product.id, roundedPrice, newCount,
-        hitFloor, hitCeiling, isAppreciation
+      // ── 9. Save to Firestore ──
+      await updateProductPrice(product.id, newPrice, isAppreciation, count);
+
+      // ── 10. Log result ──
+      const arrow     = isAppreciation ? "📈" : "📉";
+      const stageInfo = stage
+        ? (isAppreciation ? `+${stage.gainPercent}%` : `-${stage.dropPercent}%`)
+        : "";
+
+      console.log(
+        `${arrow} "${product.name}"` +
+        ` | [${matchedOn}]` +
+        ` | Age: ${ageDays}d` +
+        ` | Rs.${product.currentPrice} → Rs.${newPrice} (${stageInfo})`
       );
 
-      const arrow = isAppreciation ? "📈" : "📉";
-      console.log(
-        `${arrow} ${product.name} | Category: ${product.categoryName} | Age: ${ageDays}d | ` +
-        `${product.currentPrice} → ${roundedPrice}` +
-        (hitFloor   ? " | 🏁 Floor reached — stopped"   : "") +
-        (hitCeiling ? " | 🏆 Ceiling reached — stopped" : "")
-      );
-      updatedCount++;
+      isAppreciation ? appUpdated++ : depUpdated++;
 
     } catch (err) {
-      console.error(`❌ Error: ${product.name || product.id}:`, err.message);
+      console.error(`❌ Error "${product.name || product.id}": ${err.message}`);
     }
   }
-  return { updatedCount, skippedCount };
-}
-
-/**
- * Main job — runs depreciation AND appreciation
- */
-async function updatePricesScheduled() {
-  console.log("\n🔄 Starting price update job...");
-
-  const depProducts = await fetchDepreciatingProducts();
-  console.log(`\n📉 Depreciating products found: ${depProducts.length}`);
-  const depResult = await processProducts(depProducts, false);
-
-  const appProducts = await fetchAppreciatingProducts();
-  console.log(`\n📈 Appreciating products found: ${appProducts.length}`);
-  const appResult = await processProducts(appProducts, true);
 
   console.log(
-    `\n📊 Job complete:` +
-    `\n   📉 Depreciation → ${depResult.updatedCount} updated, ${depResult.skippedCount} skipped` +
-    `\n   📈 Appreciation → ${appResult.updatedCount} updated, ${appResult.skippedCount} skipped`
+    `\n📊 Done:` +
+    `\n   📉 Deprecated  → ${depUpdated}` +
+    `\n   📈 Appreciated → ${appUpdated}` +
+    `\n   ⏭️  Skipped     → ${skipped}`
   );
 }
 
