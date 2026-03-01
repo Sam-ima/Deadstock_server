@@ -1,36 +1,50 @@
 // jobs/priceUpdateJob.js
-//
-// FIXES APPLIED:
-// 1. ageDays was not passed to calculateFinalPrice in updatePricesScheduled — FIXED
-// 2. lastDepreciatedAt from Firestore is a Timestamp, not a Date — use toDate() — FIXED
-// 3. depreciationCount incremented by 1 (not by daysSinceUpdate) consistently — FIXED
-// 4. stopDepreciating flag passed to updateProductPrice when floor is hit — FIXED
 
-const { fetchDepreciatingProducts, updateProductPrice } = require("../services/productServices");
+const {
+  fetchDepreciatingProducts,
+  fetchAppreciatingProducts,
+  updateProductPrice,
+} = require("../services/productServices");
 const { daysBetween, toDate } = require("../utils/dateUtils");
 const { calculateFinalPrice } = require("../pricing/calculateFinalPrice");
-const { currentSeason } = require("../utils/seasonUtils");
+const { DEPRECIATION_RULES } = require("../pricing/depreciationRules");
+
+// Appreciation categories — if a product with isDepreciating:true
+// belongs to one of these, it gets SKIPPED with a warning
+const APPRECIATION_CATEGORIES = ["art", "arts", "antiques", "antique",
+  "collectibles", "collectible", "paintings", "fine art", "arts & crafts"];
+
+function isAppreciationCategory(categoryName) {
+  const key = (categoryName || "").toLowerCase().trim();
+  if (APPRECIATION_CATEGORIES.includes(key)) return true;
+  const rule = DEPRECIATION_RULES[key];
+  if (!rule) return false;
+  const resolved = rule.ref ? DEPRECIATION_RULES[rule.ref] : rule;
+  return resolved && resolved.appreciation === true;
+}
 
 /**
- * Run depreciation for ALL eligible products.
- * Called by the scheduled Cloud Function every day.
+ * Shared logic for both depreciation and appreciation
  */
-async function updatePricesScheduled() {
-  const products = await fetchDepreciatingProducts();
-
-  if (!products.length) {
-    console.log("No depreciating products found.");
-    return;
-  }
-
+async function processProducts(products, isAppreciation) {
   const today = new Date();
-  const season = currentSeason();
   let updatedCount = 0;
   let skippedCount = 0;
 
   for (const product of products) {
     try {
-      // ── 1. Parse manufacture_date (string "YYYY-MM-DD") ──
+      // ── Safety: skip appreciation categories in depreciation job ──
+      if (!isAppreciation && isAppreciationCategory(product.categoryName)) {
+        console.warn(
+          `⚠️  SKIPPED ${product.name} (category: "${product.categoryName}") ` +
+          `— this is an appreciation category. ` +
+          `Fix in Firestore: isDepreciating→false, isAppreciating→true`
+        );
+        skippedCount++;
+        continue;
+      }
+
+      // ── 1. Get manufacture date ──
       const manufactureDate = product.manufacture_date
         ? new Date(product.manufacture_date)
         : toDate(product.createdAt);
@@ -41,105 +55,86 @@ async function updatePricesScheduled() {
         continue;
       }
 
-      // ── 2. Total age of product from manufacture date ──
+      // ── 2. Age in days ──
       const ageDays = daysBetween(manufactureDate, today);
 
-      // ── 3. FIX: Convert Firestore Timestamp to Date using toDate() ──
-      //    Old: new Date(product.lastDepreciatedAt)  → Invalid Date
-      //    New: toDate(product.lastDepreciatedAt)    → correct JS Date
+      // ── 3. Skip if updated today already ──
       const lastUpdate = product.lastDepreciatedAt
         ? toDate(product.lastDepreciatedAt)
-        : manufactureDate;
+        : null;
+      const daysSinceUpdate = lastUpdate ? daysBetween(lastUpdate, today) : 999;
 
-      const daysSinceUpdate = daysBetween(lastUpdate, today);
-
-      // Skip if updated less than 1 day ago
       if (daysSinceUpdate < 1) {
-        console.log(`⏭️  Skipping ${product.name} — updated recently`);
+        console.log(`⏭️  Skipping ${product.name} — already updated today`);
         skippedCount++;
         continue;
       }
 
-      // ── 4. FIX: Pass ageDays to calculateFinalPrice ──
-      //    Old: calculateFinalPrice(product)         → ageDays was undefined!
-      //    New: calculateFinalPrice(product, ageDays, season)
-      const newPrice = calculateFinalPrice(product, ageDays, season);
+      // ── 4. Calculate new price ──
+      const newPrice    = calculateFinalPrice(product, ageDays);
       const roundedPrice = Math.round(newPrice);
 
-      // ── 5. Check if price hit floor ──
-      const floorPrice = Number(product.floorPrice) || Number(product.basePrice) * 0.5;
-      const hitFloor = roundedPrice <= floorPrice;
+      // ── 5. Skip if not old enough yet ──
+      if (roundedPrice === Math.round(Number(product.basePrice))) {
+        console.log(`⏳ ${product.name} — not old enough yet (age: ${ageDays}d)`);
+        skippedCount++;
+        continue;
+      }
 
-      // ── 6. FIX: depreciationCount increments by 1 each run (consistent) ──
-      const newDepreciationCount = (product.depreciationCount || 0) + 1;
+      // ── 6. Floor / ceiling check ──
+      const basePrice  = Number(product.basePrice);
+      const floorPrice = Number(product.floorPrice) || basePrice * 0.5;
+      const ceiling    = basePrice * 2;
 
-      // ── 7. Update Firestore ──
+      const hitFloor   = !isAppreciation && roundedPrice <= floorPrice;
+      const hitCeiling =  isAppreciation && roundedPrice >= ceiling;
+
+      // ── 7. Count ──
+      const newCount = isAppreciation
+        ? (product.appreciationCount || 0) + 1
+        : (product.depreciationCount || 0) + 1;
+
+      // ── 8. Save to Firestore ──
       await updateProductPrice(
-        product.id,
-        roundedPrice,
-        newDepreciationCount,
-        hitFloor // stops depreciation if floor is reached
+        product.id, roundedPrice, newCount,
+        hitFloor, hitCeiling, isAppreciation
       );
 
+      const arrow = isAppreciation ? "📈" : "📉";
       console.log(
-        `✅ ${product.name} | Age: ${ageDays}d | Season: ${season} | ` +
-        `${product.currentPrice} → ${roundedPrice} | Floor: ${floorPrice}` +
-        (hitFloor ? " | 🏁 Floor reached — stopped" : "")
+        `${arrow} ${product.name} | Category: ${product.categoryName} | Age: ${ageDays}d | ` +
+        `${product.currentPrice} → ${roundedPrice}` +
+        (hitFloor   ? " | 🏁 Floor reached — stopped"   : "") +
+        (hitCeiling ? " | 🏆 Ceiling reached — stopped" : "")
       );
-
       updatedCount++;
+
     } catch (err) {
-      console.error(`❌ Error processing ${product.name || product.id}:`, err.message);
+      console.error(`❌ Error: ${product.name || product.id}:`, err.message);
     }
   }
-
-  console.log(`\n📊 Done: ${updatedCount} updated, ${skippedCount} skipped.`);
+  return { updatedCount, skippedCount };
 }
 
 /**
- * Run depreciation for a SINGLE product by ID.
- * Useful for testing or admin triggers.
+ * Main job — runs depreciation AND appreciation
  */
-async function updateSingleProductPrice(productId) {
-  const products = await fetchDepreciatingProducts();
-  const product = products.find((p) => p.id === productId);
+async function updatePricesScheduled() {
+  console.log("\n🔄 Starting price update job...");
 
-  if (!product) throw new Error(`Product not found: ${productId}`);
+  const depProducts = await fetchDepreciatingProducts();
+  console.log(`\n📉 Depreciating products found: ${depProducts.length}`);
+  const depResult = await processProducts(depProducts, false);
 
-  const today = new Date();
-  const season = currentSeason();
+  const appProducts = await fetchAppreciatingProducts();
+  console.log(`\n📈 Appreciating products found: ${appProducts.length}`);
+  const appResult = await processProducts(appProducts, true);
 
-  const manufactureDate = product.manufacture_date
-    ? new Date(product.manufacture_date)
-    : toDate(product.createdAt);
-
-  if (!manufactureDate || isNaN(manufactureDate.getTime())) {
-    throw new Error(`Invalid manufacture_date for product: ${productId}`);
-  }
-
-  const ageDays = daysBetween(manufactureDate, today);
-
-  const lastUpdate = product.lastDepreciatedAt
-    ? toDate(product.lastDepreciatedAt)
-    : manufactureDate;
-
-  const daysSinceUpdate = daysBetween(lastUpdate, today);
-
-  if (daysSinceUpdate < 1) {
-    console.log(`⏭️  No update needed for ${product.name} — updated recently`);
-    return product.currentPrice;
-  }
-
-  const newPrice = calculateFinalPrice(product, ageDays, season);
-  const roundedPrice = Math.round(newPrice);
-  const floorPrice = Number(product.floorPrice) || Number(product.basePrice) * 0.5;
-  const hitFloor = roundedPrice <= floorPrice;
-  const newDepreciationCount = (product.depreciationCount || 0) + 1;
-
-  await updateProductPrice(product.id, roundedPrice, newDepreciationCount, hitFloor);
-
-  console.log(`✅ ${product.name}: ${product.currentPrice} → ${roundedPrice}`);
-  return roundedPrice;
+  console.log(
+    `\n📊 Job complete:` +
+    `\n   📉 Depreciation → ${depResult.updatedCount} updated, ${depResult.skippedCount} skipped` +
+    `\n   📈 Appreciation → ${appResult.updatedCount} updated, ${appResult.skippedCount} skipped`
+  );
 }
 
-module.exports = { updatePricesScheduled, updateSingleProductPrice };
+module.exports = { updatePricesScheduled };
