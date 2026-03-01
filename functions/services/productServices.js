@@ -3,10 +3,49 @@
 const { db, admin } = require("../firebaseAdmin");
 
 /**
- * Fetch all products eligible for depreciation
- * isDepreciating: true AND status: active
+ * Resolve categoryName + subcategoryName for a snapshot in ONE batch
  */
-async function fetchDepreciatingProducts() {
+async function resolveCategories(snapshot) {
+  const categoryIds    = new Set();
+  const subcategoryIds = new Set();
+
+  snapshot.docs.forEach((doc) => {
+    const d = doc.data();
+    if (d.categoryId)    categoryIds.add(d.categoryId);
+    if (d.subcategoryId) subcategoryIds.add(d.subcategoryId);
+  });
+
+  const [catSnaps, subcatSnaps] = await Promise.all([
+    Promise.all(Array.from(categoryIds).map(id    => db.collection("categories").doc(id).get())),
+    Promise.all(Array.from(subcategoryIds).map(id => db.collection("subcategories").doc(id).get())),
+  ]);
+
+  const categoryMap    = {};
+  const subcategoryMap = {};
+
+  catSnaps.forEach(snap => {
+    if (snap.exists) categoryMap[snap.id] = (snap.data().name || "").toLowerCase().trim();
+  });
+  subcatSnaps.forEach(snap => {
+    if (snap.exists) subcategoryMap[snap.id] = (snap.data().name || "").toLowerCase().trim();
+  });
+
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      categoryName:    categoryMap[data.categoryId]       || "unknown",
+      subcategoryName: subcategoryMap[data.subcategoryId] || "",
+    };
+  });
+}
+
+/**
+ * Fetch only products where isDepreciating: true AND status: active
+ * This is the ONLY flag needed — appreciation is auto-detected from category
+ */
+async function fetchActiveProducts() {
   const snapshot = await db
     .collection("products")
     .where("isDepreciating", "==", true)
@@ -18,92 +57,25 @@ async function fetchDepreciatingProducts() {
 }
 
 /**
- * Fetch all products eligible for appreciation
- * isAppreciating: true AND status: active
+ * Update product price
+ * - Never sets isDepreciating to false (stays true even at floor)
+ * - Tracks depreciationCount or appreciationCount separately
  */
-async function fetchAppreciatingProducts() {
-  const snapshot = await db
-    .collection("products")
-    .where("isAppreciating", "==", true)
-    .where("status", "==", "active")
-    .get();
-
-  if (snapshot.empty) return [];
-  return await resolveCategories(snapshot);
-}
-
-/**
- * Shared helper — resolves categoryName for all products in one batch
- */
-async function resolveCategories(snapshot) {
-  // Collect unique categoryIds
-  const categoryIds = new Set();
-  snapshot.docs.forEach((doc) => {
-    const catId = doc.data().categoryId;
-    if (catId) categoryIds.add(catId);
-  });
-
-  // Fetch all categories in ONE batch
-  const categoryMap = {};
-  if (categoryIds.size > 0) {
-    const catSnaps = await Promise.all(
-      Array.from(categoryIds).map((id) => db.collection("categories").doc(id).get())
-    );
-    catSnaps.forEach((snap) => {
-      if (snap.exists) {
-        categoryMap[snap.id] = (snap.data().name || "unknown").toLowerCase();
-      }
-    });
-  }
-
-  // Build product list with categoryName resolved
-  return snapshot.docs.map((doc) => {
-    const data = doc.data();
-    return {
-      id: doc.id,
-      ...data,
-      categoryName: categoryMap[data.categoryId] || "unknown",
-    };
-  });
-}
-
-/**
- * Update product price after depreciation or appreciation
- *
- * @param {string}  productId
- * @param {number}  newPrice
- * @param {number}  newCount          - new depreciationCount or appreciationCount
- * @param {boolean} stopDepreciating  - true if floor price hit
- * @param {boolean} stopAppreciating  - true if ceiling price hit
- * @param {boolean} isAppreciation    - true if this is an appreciation update
- */
-async function updateProductPrice(
-  productId,
-  newPrice,
-  newCount,
-  stopDepreciating = false,
-  stopAppreciating = false,
-  isAppreciation = false
-) {
+async function updateProductPrice(productId, newPrice, isAppreciation, count) {
   const updateData = {
-    currentPrice: newPrice,
+    currentPrice:     newPrice,
     lastDepreciatedAt: admin.firestore.Timestamp.now(),
-    updatedAt: admin.firestore.Timestamp.now(),
+    updatedAt:         admin.firestore.Timestamp.now(),
   };
 
   if (isAppreciation) {
-    updateData.appreciationCount = newCount;
-    if (stopAppreciating) updateData.isAppreciating = false;
+    updateData.appreciationCount = count;
   } else {
-    updateData.depreciationCount = newCount;
-    if (stopDepreciating) updateData.isDepreciating = false;
+    updateData.depreciationCount = count;
   }
 
+  // ✅ isDepreciating is NEVER set to false — product stays in system
   await db.collection("products").doc(productId).update(updateData);
 }
 
-module.exports = {
-  fetchDepreciatingProducts,
-  fetchAppreciatingProducts,
-  updateProductPrice,
-};
+module.exports = { fetchActiveProducts, updateProductPrice };
