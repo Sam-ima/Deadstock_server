@@ -2,20 +2,21 @@
   "name": "functions",
   "description": "Cloud Functions for Firebase",
   "scripts": {
-    "lint": "eslint .",
-    "serve": "firebase emulators:start --only functions",
-    "shell": "firebase functions:shell",
-    "start": "npm run shell",
-    "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "price:job": "node jobs/priceEvolution.js"
   },
   "engines": {
     "node": "24"
   },
-  "main": "index.js",
+  "main": "server.js",
   "dependencies": {
+    "axios": "^1.13.3",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "firebase-admin": "^13.6.0",
-    "firebase-functions": "^7.0.0"
+    "firebase-functions": "^7.0.3",
+    "nodemon": "^3.1.11"
   },
   "devDependencies": {
     "eslint": "^8.15.0",
