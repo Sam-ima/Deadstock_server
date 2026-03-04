@@ -1,15 +1,18 @@
 require("./firebaseAdmin"); // Initialize Firebase Admin
 const { updatePricesScheduled } = require("./jobs/priceUpdateJob"); // ← FIXED
+const { watchAuctionStatus } = require("./services/notifyHighestBidder"); //notify highest bidder
 const express = require("express");
 const cors = require("cors");
 
 const app = express();
 
 // middlewares
-app.use(cors({
-  origin: "http://localhost:5173",
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -33,9 +36,14 @@ app.listen(PORT, () => {
     .catch(console.error);
 
   // ✅ Run every 24 hours automatically
-  setInterval(() => {
-    updatePricesScheduled()
-      .then(() => console.log("✅ Daily depreciation done"))
-      .catch(console.error);
-  }, 24 * 60 * 60 * 1000);
+  setInterval(
+    () => {
+      updatePricesScheduled()
+        .then(() => console.log("✅ Daily depreciation done"))
+        .catch(console.error);
+    },
+    24 * 60 * 60 * 1000,
+  );
+
+  watchAuctionStatus();
 });
