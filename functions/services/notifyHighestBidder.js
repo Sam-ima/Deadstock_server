@@ -2,7 +2,7 @@ const { db } = require("../firebaseAdmin");
 const { sendWinnerEmail } = require("../config/node_mailer/mailer");
 
 const watchAuctionStatus = () => {
-  console.log("👂 Watching auctions for status changes...");
+//   console.log("👂 Watching auctions for status changes...");
 
   db.collection("products").onSnapshot(
     (snapshot) => {
@@ -71,7 +71,7 @@ const watchAuctionStatus = () => {
             product.name,
             auction.highestBid,
             product,
-            paymentDeadline,
+            paymentDeadline, change.doc.id,
           );
 
           console.log(`✅ Winner email sent to ${user.email}`);
