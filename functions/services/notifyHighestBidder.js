@@ -13,7 +13,7 @@ const watchAuctionStatus = () => {
     unsubscribe = null;
   }
 
-  console.log(`👂 Watching auctions for status changes... (attempt ${retryCount + 1})`);
+  // console.log(`👂 Watching auctions for status changes... (attempt ${retryCount + 1})`);
 
   unsubscribe = db.collection("products").onSnapshot(
     (snapshot) => {
@@ -21,7 +21,7 @@ const watchAuctionStatus = () => {
       retryCount = 0;
 
       snapshot.docChanges().forEach(async (change) => {
-        console.log(`🔄 type: ${change.type} | name: ${change.doc.data().name}`);
+        // console.log(`🔄 type: ${change.type} | name: ${change.doc.data().name}`);
 
         if (change.type !== "modified") return;
 
@@ -57,7 +57,7 @@ const watchAuctionStatus = () => {
           }
 
           const user = usersSnapshot.docs[0].data();
-          console.log(`📧 Found user: ${user.fullName} → ${user.email}`);
+          // console.log(`📧 Found user: ${user.fullName} → ${user.email}`);
 
           // ✅ Set payment deadline = now + 24 hours
           const paymentDeadline = new Date();
@@ -82,8 +82,8 @@ const watchAuctionStatus = () => {
             change.doc.id,
           );
 
-          console.log(`✅ Winner email sent to ${user.email}`);
-          console.log(`⏰ Payment deadline set: ${paymentDeadline}`);
+          // console.log(`✅ Winner email sent to ${user.email}`);
+          // console.log(`⏰ Payment deadline set: ${paymentDeadline}`);
 
           // ✅ Schedule auto-disable after 24 hours
           schedulePaymentExpiry(change.doc.ref, paymentDeadline, product.name);
@@ -104,7 +104,7 @@ const watchAuctionStatus = () => {
       // Exponential backoff: 2s, 4s, 8s, 16s... capped at 30s
       retryCount++;
       const delay = Math.min(1000 * 2 ** retryCount, MAX_RETRY_DELAY_MS);
-      console.log(`🔄 Reconnecting in ${delay / 1000}s... (retry #${retryCount})`);
+      // console.log(`🔄 Reconnecting in ${delay / 1000}s... (retry #${retryCount})`);
 
       retryTimeout = setTimeout(() => {
         watchAuctionStatus();
@@ -118,9 +118,9 @@ const schedulePaymentExpiry = (docRef, paymentDeadline, productName) => {
   const now = new Date();
   const timeUntilExpiry = paymentDeadline.getTime() - now.getTime();
 
-  console.log(
-    `⏰ Payment expiry scheduled in ${Math.round(timeUntilExpiry / 1000 / 60)} minutes for: ${productName}`,
-  );
+  // console.log(
+  //   `⏰ Payment expiry scheduled in ${Math.round(timeUntilExpiry / 1000 / 60)} minutes for: ${productName}`,
+  // );
 
   setTimeout(async () => {
     try {
