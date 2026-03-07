@@ -1,15 +1,27 @@
 const { db } = require("../firebaseAdmin");
 const { sendWinnerEmail } = require("../config/node_mailer/mailer");
 
-const watchAuctionStatus = () => {
-//   console.log("👂 Watching auctions for status changes...");
+let unsubscribe = null;
+let retryCount = 0;
+let retryTimeout = null;
+const MAX_RETRY_DELAY_MS = 30000; // cap at 30 seconds
 
-  db.collection("products").onSnapshot(
+const watchAuctionStatus = () => {
+  // Clear any existing listener before starting a new one
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
+  }
+
+  console.log(`👂 Watching auctions for status changes... (attempt ${retryCount + 1})`);
+
+  unsubscribe = db.collection("products").onSnapshot(
     (snapshot) => {
+      // ✅ Reset retry count on successful connection
+      retryCount = 0;
+
       snapshot.docChanges().forEach(async (change) => {
-        console.log(
-          `🔄 type: ${change.type} | name: ${change.doc.data().name}`,
-        );
+        console.log(`🔄 type: ${change.type} | name: ${change.doc.data().name}`);
 
         if (change.type !== "modified") return;
 
@@ -30,9 +42,7 @@ const watchAuctionStatus = () => {
           return;
         }
 
-        console.log(
-          `🔔 Auction ended! Finding winner: ${auction.highestBidderId}`,
-        );
+        console.log(`🔔 Auction ended! Finding winner: ${auction.highestBidderId}`);
 
         try {
           const usersSnapshot = await db
@@ -42,9 +52,7 @@ const watchAuctionStatus = () => {
             .get();
 
           if (usersSnapshot.empty) {
-            console.log(
-              `❌ No user found with uid: ${auction.highestBidderId}`,
-            );
+            console.log(`❌ No user found with uid: ${auction.highestBidderId}`);
             return;
           }
 
@@ -55,8 +63,7 @@ const watchAuctionStatus = () => {
           const paymentDeadline = new Date();
           paymentDeadline.setHours(paymentDeadline.getHours() + 24);
 
-          // ✅ Mark as notified + set deadline BEFORE sending email
-          //    (prevents duplicate if email send crashes midway)
+          // ✅ Mark as notified BEFORE sending email to prevent duplicates
           await change.doc.ref.update({
             "auction.winnerNotified": true,
             "auction.winnerId": auction.highestBidderId,
@@ -64,14 +71,15 @@ const watchAuctionStatus = () => {
             "auction.paymentStatus": "pending",
           });
 
-          // ✅ Send winner email with deadline
+          // ✅ Send winner email
           await sendWinnerEmail(
             user.email,
             user.fullName,
             product.name,
             auction.highestBid,
             product,
-            paymentDeadline, change.doc.id,
+            paymentDeadline,
+            change.doc.id,
           );
 
           console.log(`✅ Winner email sent to ${user.email}`);
@@ -85,12 +93,27 @@ const watchAuctionStatus = () => {
       });
     },
     (error) => {
-      console.error("❌ Snapshot listener error:", error);
+      // ❌ Listener failed — clean up and schedule reconnect
+      console.error("❌ Snapshot listener error:", error.message);
+
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+
+      // Exponential backoff: 2s, 4s, 8s, 16s... capped at 30s
+      retryCount++;
+      const delay = Math.min(1000 * 2 ** retryCount, MAX_RETRY_DELAY_MS);
+      console.log(`🔄 Reconnecting in ${delay / 1000}s... (retry #${retryCount})`);
+
+      retryTimeout = setTimeout(() => {
+        watchAuctionStatus();
+      }, delay);
     },
   );
 };
 
-// ✅ Auto-disable purchase after 24 hours
+// ✅ Auto-disable purchase after 24 hours if payment not completed
 const schedulePaymentExpiry = (docRef, paymentDeadline, productName) => {
   const now = new Date();
   const timeUntilExpiry = paymentDeadline.getTime() - now.getTime();
@@ -104,7 +127,6 @@ const schedulePaymentExpiry = (docRef, paymentDeadline, productName) => {
       const docSnap = await docRef.get();
       const data = docSnap.data();
 
-      // ✅ Only expire if payment is still pending (not already paid)
       if (data?.auction?.paymentStatus === "pending") {
         await docRef.update({
           "auction.paymentStatus": "expired",
@@ -115,12 +137,23 @@ const schedulePaymentExpiry = (docRef, paymentDeadline, productName) => {
         console.log(`✅ Payment already completed for: ${productName}`);
       }
     } catch (err) {
-      console.error(
-        `❌ Failed to expire payment for ${productName}:`,
-        err.message,
-      );
+      console.error(`❌ Failed to expire payment for ${productName}:`, err.message);
     }
   }, timeUntilExpiry);
 };
+
+// ✅ Clean up listener on server shutdown
+process.on("SIGTERM", () => {
+  console.log("🛑 SIGTERM received — cleaning up auction watcher...");
+  if (unsubscribe) unsubscribe();
+  if (retryTimeout) clearTimeout(retryTimeout);
+});
+
+process.on("SIGINT", () => {
+  console.log("🛑 SIGINT received — cleaning up auction watcher...");
+  if (unsubscribe) unsubscribe();
+  if (retryTimeout) clearTimeout(retryTimeout);
+  process.exit(0);
+});
 
 module.exports = { watchAuctionStatus };

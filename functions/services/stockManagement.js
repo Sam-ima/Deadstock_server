@@ -81,4 +81,35 @@ async function finalizeStock(req, res) {
   }
 }
 
-module.exports = { reserveStock, finalizeStock };
+async function releaseStock(req, res) {
+  const { productId, quantity } = req.body;
+
+  if (!productId || !quantity || quantity < 1)
+    return res.status(400).json({ error: "Invalid input" });
+
+  const productRef = db.collection("products").doc(productId);
+
+  try {
+    await db.runTransaction(async (transaction) => {
+      const productDoc = await transaction.get(productRef);
+      if (!productDoc.exists) throw new Error("Product not found");
+
+      const productData = productDoc.data();
+      const reservedStock = Number(productData.reservedStock || 0);
+      const availableStock = Number(productData.availableStock || 0);
+
+      transaction.update(productRef, {
+        reservedStock: Math.max(0, reservedStock - quantity),
+        availableStock: availableStock + quantity,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    return res.status(200).json({ success: true, message: "Stock released" });
+  } catch (err) {
+    console.error("ReleaseStock error:", err.message);
+    return res.status(400).json({ error: err.message });
+  }
+}
+
+module.exports = { reserveStock, finalizeStock,releaseStock };
