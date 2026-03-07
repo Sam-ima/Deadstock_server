@@ -61,10 +61,10 @@ const sendWinnerEmail = async (
             </table>
 
             <!-- CTA with productId ✅ -->
-            <div style="text-align: center; margin: 30px 0;">
+            <div style="text-align: center; margin: 20px 0;">
               <a href="${process.env.FRONTEND_URL}/auctionCheckout/${productId}" 
-                style="background-color: #366a48; color: white; padding: 12px 30px; 
-                       border-radius: 5px; text-decoration: none; font-size: 16px;">
+                style="background-color: #366a48; color: white; padding: 10px 10px; 
+                       border-radius: 5px; text-decoration: none; font-size: 12px;">
                 Complete Your Purchase
               </a>
             </div>
